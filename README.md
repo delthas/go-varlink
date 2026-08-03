@@ -50,7 +50,7 @@ interface which needs to be implemented:
 ```go
 type backend struct{}
 
-func (backend) Jump(in *JumpIn) (*JumpOut, error) {
+func (backend) Jump(call *JumpCall, in *JumpIn) (*JumpOut, error) {
     log.Print(in.Latitude, in.Longitude)
     return nil, nil
 }

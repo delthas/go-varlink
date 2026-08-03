@@ -12,11 +12,11 @@ import (
 
 type calcBackend struct{}
 
-func (calcBackend) Multiply(in *calcapi.MultiplyIn) (*calcapi.MultiplyOut, error) {
+func (calcBackend) Multiply(_ *calcapi.MultiplyCall, in *calcapi.MultiplyIn) (*calcapi.MultiplyOut, error) {
 	return &calcapi.MultiplyOut{Result: in.A * in.B}, nil
 }
 
-func (calcBackend) Divide(in *calcapi.DivideIn) (*calcapi.DivideOut, error) {
+func (calcBackend) Divide(_ *calcapi.DivideCall, in *calcapi.DivideIn) (*calcapi.DivideOut, error) {
 	if in.B == 0 {
 		return nil, &calcapi.DivisionByZeroError{}
 	}
@@ -25,11 +25,11 @@ func (calcBackend) Divide(in *calcapi.DivideIn) (*calcapi.DivideOut, error) {
 
 type stringBackend struct{}
 
-func (stringBackend) Repeat(in *stringapi.RepeatIn) (*stringapi.RepeatOut, error) {
+func (stringBackend) Repeat(_ *stringapi.RepeatCall, in *stringapi.RepeatIn) (*stringapi.RepeatOut, error) {
 	return &stringapi.RepeatOut{Output: in.Input}, nil
 }
 
-func (stringBackend) Reverse(in *stringapi.ReverseIn) (*stringapi.ReverseOut, error) {
+func (stringBackend) Reverse(_ *stringapi.ReverseCall, in *stringapi.ReverseIn) (*stringapi.ReverseOut, error) {
 	result := make([]rune, len(in.Input))
 	for i, char := range in.Input {
 		result[len(in.Input)-i-1] = char
@@ -37,7 +37,7 @@ func (stringBackend) Reverse(in *stringapi.ReverseIn) (*stringapi.ReverseOut, er
 	return &stringapi.ReverseOut{Output: string(result)}, nil
 }
 
-func (stringBackend) Random(_ *stringapi.RandomIn) (*stringapi.RandomOut, error) {
+func (stringBackend) Random(_ *stringapi.RandomCall, _ *stringapi.RandomIn) (*stringapi.RandomOut, error) {
 	// chosen by a fair dice roll, guaranteed to be random.
 	return &stringapi.RandomOut{Output: "4"}, nil
 }

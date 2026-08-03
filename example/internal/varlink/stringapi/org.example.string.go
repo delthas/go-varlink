@@ -12,6 +12,25 @@ type RandomOut struct {
 	Output string `json:"output"`
 }
 
+// RandomCall is an in-progress org.example.string.Random call.
+//
+// A reply may be sent with Reply or CloseWithReply instead of returning it
+// from the Backend method, for instance to hijack the connection afterwards.
+type RandomCall struct {
+	*govarlink.ServerCall
+	Request *govarlink.ServerRequest
+}
+
+// Reply sends a non-final reply.
+func (call *RandomCall) Reply(out *RandomOut) error {
+	return call.ServerCall.Reply(out)
+}
+
+// CloseWithReply sends a final reply and closes the call.
+func (call *RandomCall) CloseWithReply(out *RandomOut) error {
+	return call.ServerCall.CloseWithReply(out)
+}
+
 type RepeatIn struct {
 	Input string `json:"input"`
 }
@@ -19,11 +38,49 @@ type RepeatOut struct {
 	Output string `json:"output"`
 }
 
+// RepeatCall is an in-progress org.example.string.Repeat call.
+//
+// A reply may be sent with Reply or CloseWithReply instead of returning it
+// from the Backend method, for instance to hijack the connection afterwards.
+type RepeatCall struct {
+	*govarlink.ServerCall
+	Request *govarlink.ServerRequest
+}
+
+// Reply sends a non-final reply.
+func (call *RepeatCall) Reply(out *RepeatOut) error {
+	return call.ServerCall.Reply(out)
+}
+
+// CloseWithReply sends a final reply and closes the call.
+func (call *RepeatCall) CloseWithReply(out *RepeatOut) error {
+	return call.ServerCall.CloseWithReply(out)
+}
+
 type ReverseIn struct {
 	Input string `json:"input"`
 }
 type ReverseOut struct {
 	Output string `json:"output"`
+}
+
+// ReverseCall is an in-progress org.example.string.Reverse call.
+//
+// A reply may be sent with Reply or CloseWithReply instead of returning it
+// from the Backend method, for instance to hijack the connection afterwards.
+type ReverseCall struct {
+	*govarlink.ServerCall
+	Request *govarlink.ServerRequest
+}
+
+// Reply sends a non-final reply.
+func (call *ReverseCall) Reply(out *ReverseOut) error {
+	return call.ServerCall.Reply(out)
+}
+
+// CloseWithReply sends a final reply and closes the call.
+func (call *ReverseCall) CloseWithReply(out *ReverseOut) error {
+	return call.ServerCall.CloseWithReply(out)
 }
 
 type Client struct {
@@ -70,10 +127,16 @@ func (c Client) Reverse(in *ReverseIn) (*ReverseOut, error) {
 	return out, unmarshalError(err)
 }
 
+// Backend implements the org.example.string Varlink interface.
+//
+// A method may send the final reply itself via the provided call rather than
+// returning it, for instance to hijack the connection. It must then return a nil
+// output: the output is ignored, and returning an error after replying drops the
+// connection.
 type Backend interface {
-	Random(*RandomIn) (*RandomOut, error)
-	Repeat(*RepeatIn) (*RepeatOut, error)
-	Reverse(*ReverseIn) (*ReverseOut, error)
+	Random(*RandomCall, *RandomIn) (*RandomOut, error)
+	Repeat(*RepeatCall, *RepeatIn) (*RepeatOut, error)
+	Reverse(*ReverseCall, *ReverseIn) (*ReverseOut, error)
 }
 
 type Handler struct {
@@ -102,19 +165,19 @@ func (h Handler) HandleVarlink(call *govarlink.ServerCall, req *govarlink.Server
 		if err := json.Unmarshal(req.Parameters, in); err != nil {
 			return err
 		}
-		out, err = h.Backend.Random(in)
+		out, err = h.Backend.Random(&RandomCall{ServerCall: call, Request: req}, in)
 	case "org.example.string.Repeat":
 		in := new(RepeatIn)
 		if err := json.Unmarshal(req.Parameters, in); err != nil {
 			return err
 		}
-		out, err = h.Backend.Repeat(in)
+		out, err = h.Backend.Repeat(&RepeatCall{ServerCall: call, Request: req}, in)
 	case "org.example.string.Reverse":
 		in := new(ReverseIn)
 		if err := json.Unmarshal(req.Parameters, in); err != nil {
 			return err
 		}
-		out, err = h.Backend.Reverse(in)
+		out, err = h.Backend.Reverse(&ReverseCall{ServerCall: call, Request: req}, in)
 	default:
 		err = &govarlink.ServerError{
 			Name:       "org.varlink.service.MethodNotFound",
@@ -123,6 +186,9 @@ func (h Handler) HandleVarlink(call *govarlink.ServerCall, req *govarlink.Server
 	}
 	if err != nil {
 		return marshalError(err)
+	}
+	if call.Replied() {
+		return nil
 	}
 	return call.CloseWithReply(out)
 }

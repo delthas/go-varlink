@@ -112,6 +112,34 @@ func main() {
 
 		f.Type().Id(name + "In").Add(genStruct(method.In))
 		f.Type().Id(name + "Out").Add(genStruct(method.Out))
+
+		f.Comment("// " + name + "Call is an in-progress " + iface.Name + "." + name + " call.")
+		f.Comment("//")
+		f.Comment("// A reply may be sent with Reply or CloseWithReply instead of returning it")
+		f.Comment("// from the Backend method, for instance to hijack the connection afterwards.")
+		f.Type().Id(name+"Call").Struct(
+			jen.Op("*").Qual("github.com/emersion/go-varlink", "ServerCall"),
+			jen.Id("Request").Op("*").Qual("github.com/emersion/go-varlink", "ServerRequest"),
+		)
+
+		f.Comment("// Reply sends a non-final reply.")
+		f.Func().Params(
+			jen.Id("call").Op("*").Id(name + "Call"),
+		).Id("Reply").Params(
+			jen.Id("out").Op("*").Id(name + "Out"),
+		).Id("error").Block(
+			jen.Return().Id("call").Dot("ServerCall").Dot("Reply").Call(jen.Id("out")),
+		)
+
+		f.Comment("// CloseWithReply sends a final reply and closes the call.")
+		f.Func().Params(
+			jen.Id("call").Op("*").Id(name + "Call"),
+		).Id("CloseWithReply").Params(
+			jen.Id("out").Op("*").Id(name + "Out"),
+		).Id("error").Block(
+			jen.Return().Id("call").Dot("ServerCall").Dot("CloseWithReply").Call(jen.Id("out")),
+		)
+
 		f.Line()
 	}
 
@@ -188,6 +216,7 @@ func main() {
 	var backendMethods []jen.Code
 	for _, name := range methodNames {
 		backendMethods = append(backendMethods, jen.Id(name).Params(
+			jen.Op("*").Id(name+"Call"),
 			jen.Op("*").Id(name+"In"),
 		).Params(
 			jen.Op("*").Id(name+"Out"),
@@ -195,6 +224,12 @@ func main() {
 		))
 	}
 
+	f.Comment("// Backend implements the " + iface.Name + " Varlink interface.")
+	f.Comment("//")
+	f.Comment("// A method may send the final reply itself via the provided call rather than")
+	f.Comment("// returning it, for instance to hijack the connection. It must then return a nil")
+	f.Comment("// output: the output is ignored, and returning an error after replying drops the")
+	f.Comment("// connection.")
 	f.Type().Id("Backend").Interface(backendMethods...)
 
 	f.Line()
@@ -237,7 +272,13 @@ func main() {
 			).Block(
 				jen.Return().Id("err"),
 			),
-			jen.List(jen.Id("out"), jen.Id("err")).Op("=").Id("h").Dot("Backend").Dot(name).Call(jen.Id("in")),
+			jen.List(jen.Id("out"), jen.Id("err")).Op("=").Id("h").Dot("Backend").Dot(name).Call(
+				jen.Op("&").Id(name+"Call").Values(
+					jen.Id("ServerCall").Op(":").Id("call"),
+					jen.Id("Request").Op(":").Id("req"),
+				),
+				jen.Id("in"),
+			),
 		))
 	}
 	methodCases = append(methodCases, jen.Default().Block(
@@ -263,6 +304,9 @@ func main() {
 		jen.Switch(jen.Id("req").Dot("Method")).Block(methodCases...),
 		jen.If(jen.Id("err").Op("!=").Nil()).Block(
 			jen.Return().Id("marshalError").Call(jen.Id("err")),
+		),
+		jen.If(jen.Id("call").Dot("Replied").Call()).Block(
+			jen.Return().Nil(),
 		),
 		jen.Return().Id("call").Dot("CloseWithReply").Call(jen.Id("out")),
 	)

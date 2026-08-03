@@ -21,12 +21,50 @@ type DivideOut struct {
 	Result int `json:"result"`
 }
 
+// DivideCall is an in-progress org.example.calc.Divide call.
+//
+// A reply may be sent with Reply or CloseWithReply instead of returning it
+// from the Backend method, for instance to hijack the connection afterwards.
+type DivideCall struct {
+	*govarlink.ServerCall
+	Request *govarlink.ServerRequest
+}
+
+// Reply sends a non-final reply.
+func (call *DivideCall) Reply(out *DivideOut) error {
+	return call.ServerCall.Reply(out)
+}
+
+// CloseWithReply sends a final reply and closes the call.
+func (call *DivideCall) CloseWithReply(out *DivideOut) error {
+	return call.ServerCall.CloseWithReply(out)
+}
+
 type MultiplyIn struct {
 	A int `json:"a"`
 	B int `json:"b"`
 }
 type MultiplyOut struct {
 	Result int `json:"result"`
+}
+
+// MultiplyCall is an in-progress org.example.calc.Multiply call.
+//
+// A reply may be sent with Reply or CloseWithReply instead of returning it
+// from the Backend method, for instance to hijack the connection afterwards.
+type MultiplyCall struct {
+	*govarlink.ServerCall
+	Request *govarlink.ServerRequest
+}
+
+// Reply sends a non-final reply.
+func (call *MultiplyCall) Reply(out *MultiplyOut) error {
+	return call.ServerCall.Reply(out)
+}
+
+// CloseWithReply sends a final reply and closes the call.
+func (call *MultiplyCall) CloseWithReply(out *MultiplyOut) error {
+	return call.ServerCall.CloseWithReply(out)
 }
 
 type Client struct {
@@ -67,9 +105,15 @@ func (c Client) Multiply(in *MultiplyIn) (*MultiplyOut, error) {
 	return out, unmarshalError(err)
 }
 
+// Backend implements the org.example.calc Varlink interface.
+//
+// A method may send the final reply itself via the provided call rather than
+// returning it, for instance to hijack the connection. It must then return a nil
+// output: the output is ignored, and returning an error after replying drops the
+// connection.
 type Backend interface {
-	Divide(*DivideIn) (*DivideOut, error)
-	Multiply(*MultiplyIn) (*MultiplyOut, error)
+	Divide(*DivideCall, *DivideIn) (*DivideOut, error)
+	Multiply(*MultiplyCall, *MultiplyIn) (*MultiplyOut, error)
 }
 
 type Handler struct {
@@ -100,13 +144,13 @@ func (h Handler) HandleVarlink(call *govarlink.ServerCall, req *govarlink.Server
 		if err := json.Unmarshal(req.Parameters, in); err != nil {
 			return err
 		}
-		out, err = h.Backend.Divide(in)
+		out, err = h.Backend.Divide(&DivideCall{ServerCall: call, Request: req}, in)
 	case "org.example.calc.Multiply":
 		in := new(MultiplyIn)
 		if err := json.Unmarshal(req.Parameters, in); err != nil {
 			return err
 		}
-		out, err = h.Backend.Multiply(in)
+		out, err = h.Backend.Multiply(&MultiplyCall{ServerCall: call, Request: req}, in)
 	default:
 		err = &govarlink.ServerError{
 			Name:       "org.varlink.service.MethodNotFound",
@@ -115,6 +159,9 @@ func (h Handler) HandleVarlink(call *govarlink.ServerCall, req *govarlink.Server
 	}
 	if err != nil {
 		return marshalError(err)
+	}
+	if call.Replied() {
+		return nil
 	}
 	return call.CloseWithReply(out)
 }
