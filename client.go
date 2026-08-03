@@ -1,6 +1,7 @@
 package varlink
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,20 +41,32 @@ func (err *ClientError) Error() string {
 type Client struct {
 	conn *conn
 
-	mutex   sync.Mutex
-	pending []chan<- clientReply
-	err     error
+	mutex     sync.Mutex
+	pending   []chan<- clientReply
+	upgradeCh chan<- clientReply
+	err       error
+
+	readDone chan struct{}
 }
 
 // NewClient creates a Varlink client from a net.Conn.
 func NewClient(conn net.Conn) *Client {
-	c := &Client{conn: newConn(conn)}
+	c := &Client{
+		conn:     newConn(conn),
+		readDone: make(chan struct{}),
+	}
 	go c.readLoop()
 	return c
 }
 
 // Close closes the connection.
+//
+// Once the connection has been hijacked it belongs to the caller of DoUpgrade,
+// which must close it: this becomes a no-op.
 func (c *Client) Close() error {
+	if c.conn.hijacked.Load() {
+		return nil
+	}
 	return c.conn.Close()
 }
 
@@ -67,8 +80,15 @@ func (c *Client) writeRequest(req *clientRequest, ch chan<- clientReply) error {
 		return c.err
 	}
 
+	if c.upgradeCh != nil {
+		return fmt.Errorf("varlink: an upgrade call is already in flight")
+	}
+
 	if !req.Oneway {
 		c.pending = append(c.pending, ch)
+		if req.Upgrade {
+			c.upgradeCh = ch
+		}
 	}
 
 	if req.Parameters == nil {
@@ -87,6 +107,7 @@ func (c *Client) writeRequest(req *clientRequest, ch chan<- clientReply) error {
 
 func (c *Client) readLoop() {
 	var err error
+	var hijack bool
 	defer func() {
 		c.mutex.Lock()
 		defer c.mutex.Unlock()
@@ -99,6 +120,7 @@ func (c *Client) readLoop() {
 			close(ch)
 		}
 		c.pending = nil
+		close(c.readDone)
 	}()
 
 	for {
@@ -116,6 +138,13 @@ func (c *Client) readLoop() {
 			ch = c.pending[0]
 			if !reply.Continues {
 				c.pending = c.pending[1:]
+				if ch == c.upgradeCh {
+					if reply.Error == "" {
+						hijack = true
+					} else {
+						c.upgradeCh = nil
+					}
+				}
 			}
 		}
 		c.mutex.Unlock()
@@ -126,6 +155,11 @@ func (c *Client) readLoop() {
 		}
 
 		ch <- reply
+
+		if hijack {
+			err = ErrHijacked
+			break
+		}
 	}
 }
 
@@ -169,6 +203,42 @@ func (c *Client) DoOneway(method string, in interface{}) error {
 		Oneway:     true,
 	}
 	return c.writeRequest(&req, nil)
+}
+
+// DoUpgrade is similar to Do, but requests the connection to be upgraded.
+//
+// If the service accepts the upgrade, the connection is taken over, giving up
+// Varlink message framing: the caller must read from the returned bufio.Reader,
+// and is responsible for closing the connection. Subsequent calls fail with
+// ErrHijacked.
+//
+// The returned connection and reader are nil if the service replied with an
+// error, in which case the Client remains usable.
+func (c *Client) DoUpgrade(method string, in, out interface{}) (net.Conn, *bufio.Reader, error) {
+	req := clientRequest{
+		Method:     method,
+		Parameters: in,
+		Upgrade:    true,
+	}
+	cc, err := c.do(&req)
+	if err != nil {
+		return nil, nil, err
+	}
+	continues, err := cc.next(out)
+	if continues {
+		c.conn.Close()
+		return nil, nil, fmt.Errorf("varlink: received continues=true in response to a more=false request")
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// the reply was successful: readLoop has stopped reading
+	<-c.readDone
+
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.conn.hijack()
 }
 
 func (c *Client) do(req *clientRequest) (*ClientCall, error) {

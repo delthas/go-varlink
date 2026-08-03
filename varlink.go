@@ -6,13 +6,19 @@ package varlink
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"net"
+	"sync/atomic"
 )
+
+// ErrHijacked is returned when the connection has been hijacked.
+var ErrHijacked = errors.New("varlink: connection has been hijacked")
 
 type conn struct {
 	net.Conn
 
-	br *bufio.Reader
+	br       *bufio.Reader
+	hijacked atomic.Bool
 }
 
 func newConn(c net.Conn) *conn {
@@ -22,7 +28,17 @@ func newConn(c net.Conn) *conn {
 	}
 }
 
+func (c *conn) hijack() (net.Conn, *bufio.Reader, error) {
+	if !c.hijacked.CompareAndSwap(false, true) {
+		return nil, nil, ErrHijacked
+	}
+	return c.Conn, c.br, nil
+}
+
 func (c *conn) writeMessage(v interface{}) error {
+	if c.hijacked.Load() {
+		return ErrHijacked
+	}
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err

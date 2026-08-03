@@ -1,6 +1,7 @@
 package varlink
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -95,6 +96,29 @@ func (call *ServerCall) CloseWithReply(parameters interface{}) error {
 	return call.reply(&serverReply{Parameters: parameters})
 }
 
+// Replied returns true if the final reply has been sent.
+func (call *ServerCall) Replied() bool {
+	return call.done
+}
+
+// Hijack takes over the connection, giving up Varlink message framing.
+//
+// This can only be used for a request with Upgrade set, after CloseWithReply.
+// The caller must read from the returned bufio.Reader, and is responsible for
+// closing the connection.
+func (call *ServerCall) Hijack() (net.Conn, *bufio.Reader, error) {
+	if !call.req.Upgrade {
+		return nil, nil, fmt.Errorf("varlink: ServerCall.Hijack called for a request without Upgrade set")
+	}
+	if call.req.Oneway {
+		return nil, nil, fmt.Errorf("varlink: ServerCall.Hijack called for a oneway request")
+	}
+	if !call.done {
+		return nil, nil, fmt.Errorf("varlink: ServerCall.Hijack called before ServerCall.CloseWithReply")
+	}
+	return call.conn.hijack()
+}
+
 // A Handler processes Varlink requests.
 type Handler interface {
 	HandleVarlink(call *ServerCall, req *ServerRequest) error
@@ -128,7 +152,11 @@ func (srv *Server) Serve(ln net.Listener) error {
 }
 
 func (srv *Server) serveConn(conn *conn) error {
-	defer conn.Close()
+	defer func() {
+		if !conn.hijacked.Load() {
+			conn.Close()
+		}
+	}()
 
 	for {
 		var req ServerRequest
@@ -138,15 +166,14 @@ func (srv *Server) serveConn(conn *conn) error {
 			return fmt.Errorf("reading request: %v", err)
 		}
 
-		if req.Upgrade {
-			return fmt.Errorf("varlink: connection upgrades not implemented")
-		}
-
 		call := &ServerCall{
 			conn: conn,
 			req:  &req,
 		}
 		err := srv.Handler.HandleVarlink(call, &req)
+		if conn.hijacked.Load() {
+			return err
+		}
 		var verr *ServerError
 		if errors.As(err, &verr) {
 			if req.Oneway {
@@ -164,6 +191,10 @@ func (srv *Server) serveConn(conn *conn) error {
 
 		if !req.Oneway && !call.done {
 			return fmt.Errorf("varlink: ServerCall.CloseWithReply not called")
+		}
+
+		if req.Upgrade && err == nil {
+			return fmt.Errorf("varlink: handler did not hijack an upgrade request for %q", req.Method)
 		}
 	}
 }
