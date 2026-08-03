@@ -3,8 +3,10 @@
 package stringapi
 
 import (
+	"bufio"
 	"encoding/json"
 	govarlink "github.com/emersion/go-varlink"
+	"net"
 )
 
 type RandomIn struct{}
@@ -110,6 +112,21 @@ func (c Client) Random(in *RandomIn) (*RandomOut, error) {
 	err := c.Client.Do("org.example.string.Random", in, out)
 	return out, unmarshalError(err)
 }
+
+// RandomUpgrade calls org.example.string.Random, requesting the
+// connection to be upgraded.
+//
+// The service must take over the connection: if it replies without doing so,
+// the connection is closed. On success the caller owns the connection and must
+// close it, and must read from the returned bufio.Reader.
+func (c Client) RandomUpgrade(in *RandomIn) (*RandomOut, net.Conn, *bufio.Reader, error) {
+	if in == nil {
+		in = new(RandomIn)
+	}
+	out := new(RandomOut)
+	conn, br, err := c.Client.DoUpgrade("org.example.string.Random", in, out)
+	return out, conn, br, unmarshalError(err)
+}
 func (c Client) Repeat(in *RepeatIn) (*RepeatOut, error) {
 	if in == nil {
 		in = new(RepeatIn)
@@ -118,6 +135,21 @@ func (c Client) Repeat(in *RepeatIn) (*RepeatOut, error) {
 	err := c.Client.Do("org.example.string.Repeat", in, out)
 	return out, unmarshalError(err)
 }
+
+// RepeatUpgrade calls org.example.string.Repeat, requesting the
+// connection to be upgraded.
+//
+// The service must take over the connection: if it replies without doing so,
+// the connection is closed. On success the caller owns the connection and must
+// close it, and must read from the returned bufio.Reader.
+func (c Client) RepeatUpgrade(in *RepeatIn) (*RepeatOut, net.Conn, *bufio.Reader, error) {
+	if in == nil {
+		in = new(RepeatIn)
+	}
+	out := new(RepeatOut)
+	conn, br, err := c.Client.DoUpgrade("org.example.string.Repeat", in, out)
+	return out, conn, br, unmarshalError(err)
+}
 func (c Client) Reverse(in *ReverseIn) (*ReverseOut, error) {
 	if in == nil {
 		in = new(ReverseIn)
@@ -125,6 +157,21 @@ func (c Client) Reverse(in *ReverseIn) (*ReverseOut, error) {
 	out := new(ReverseOut)
 	err := c.Client.Do("org.example.string.Reverse", in, out)
 	return out, unmarshalError(err)
+}
+
+// ReverseUpgrade calls org.example.string.Reverse, requesting the
+// connection to be upgraded.
+//
+// The service must take over the connection: if it replies without doing so,
+// the connection is closed. On success the caller owns the connection and must
+// close it, and must read from the returned bufio.Reader.
+func (c Client) ReverseUpgrade(in *ReverseIn) (*ReverseOut, net.Conn, *bufio.Reader, error) {
+	if in == nil {
+		in = new(ReverseIn)
+	}
+	out := new(ReverseOut)
+	conn, br, err := c.Client.DoUpgrade("org.example.string.Reverse", in, out)
+	return out, conn, br, unmarshalError(err)
 }
 
 // Backend implements the org.example.string Varlink interface.

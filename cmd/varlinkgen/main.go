@@ -209,6 +209,39 @@ func main() {
 				jen.Id("unmarshalError").Call(jen.Id("err")),
 			),
 		)
+
+		f.Comment("// " + name + "Upgrade calls " + iface.Name + "." + name + ", requesting the")
+		f.Comment("// connection to be upgraded.")
+		f.Comment("//")
+		f.Comment("// The service must take over the connection: if it replies without doing so,")
+		f.Comment("// the connection is closed. On success the caller owns the connection and must")
+		f.Comment("// close it, and must read from the returned bufio.Reader.")
+		f.Func().Params(
+			jen.Id("c").Id("Client"),
+		).Id(name+"Upgrade").Params(
+			jen.Id("in").Op("*").Id(name+"In"),
+		).Params(
+			jen.Op("*").Id(name+"Out"),
+			jen.Qual("net", "Conn"),
+			jen.Op("*").Qual("bufio", "Reader"),
+			jen.Id("error"),
+		).Block(
+			jen.If(jen.Id("in").Op("==").Nil()).Block(
+				jen.Id("in").Op("=").New(jen.Id(name+"In")),
+			),
+			jen.Id("out").Op(":=").New(jen.Id(name+"Out")),
+			jen.List(jen.Id("conn"), jen.Id("br"), jen.Id("err")).Op(":=").Id("c").Dot("Client").Dot("DoUpgrade").Call(
+				jen.Lit(iface.Name+"."+name),
+				jen.Id("in"),
+				jen.Id("out"),
+			),
+			jen.Return().List(
+				jen.Id("out"),
+				jen.Id("conn"),
+				jen.Id("br"),
+				jen.Id("unmarshalError").Call(jen.Id("err")),
+			),
+		)
 	}
 
 	f.Line()

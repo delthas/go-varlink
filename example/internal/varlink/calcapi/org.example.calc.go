@@ -3,8 +3,10 @@
 package calcapi
 
 import (
+	"bufio"
 	"encoding/json"
 	govarlink "github.com/emersion/go-varlink"
+	"net"
 )
 
 type DivisionByZeroError struct{}
@@ -96,6 +98,21 @@ func (c Client) Divide(in *DivideIn) (*DivideOut, error) {
 	err := c.Client.Do("org.example.calc.Divide", in, out)
 	return out, unmarshalError(err)
 }
+
+// DivideUpgrade calls org.example.calc.Divide, requesting the
+// connection to be upgraded.
+//
+// The service must take over the connection: if it replies without doing so,
+// the connection is closed. On success the caller owns the connection and must
+// close it, and must read from the returned bufio.Reader.
+func (c Client) DivideUpgrade(in *DivideIn) (*DivideOut, net.Conn, *bufio.Reader, error) {
+	if in == nil {
+		in = new(DivideIn)
+	}
+	out := new(DivideOut)
+	conn, br, err := c.Client.DoUpgrade("org.example.calc.Divide", in, out)
+	return out, conn, br, unmarshalError(err)
+}
 func (c Client) Multiply(in *MultiplyIn) (*MultiplyOut, error) {
 	if in == nil {
 		in = new(MultiplyIn)
@@ -103,6 +120,21 @@ func (c Client) Multiply(in *MultiplyIn) (*MultiplyOut, error) {
 	out := new(MultiplyOut)
 	err := c.Client.Do("org.example.calc.Multiply", in, out)
 	return out, unmarshalError(err)
+}
+
+// MultiplyUpgrade calls org.example.calc.Multiply, requesting the
+// connection to be upgraded.
+//
+// The service must take over the connection: if it replies without doing so,
+// the connection is closed. On success the caller owns the connection and must
+// close it, and must read from the returned bufio.Reader.
+func (c Client) MultiplyUpgrade(in *MultiplyIn) (*MultiplyOut, net.Conn, *bufio.Reader, error) {
+	if in == nil {
+		in = new(MultiplyIn)
+	}
+	out := new(MultiplyOut)
+	conn, br, err := c.Client.DoUpgrade("org.example.calc.Multiply", in, out)
+	return out, conn, br, unmarshalError(err)
 }
 
 // Backend implements the org.example.calc Varlink interface.
